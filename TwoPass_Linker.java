@@ -1,3 +1,4 @@
+package Lab1;
 import java.util.*;
 import java.io.*; 
 
@@ -7,13 +8,13 @@ public class TwoPass_Linker {
 		File input = new File("src/input/input-5");
 		Scanner scan = new Scanner(input);
 		
-		Hashtable<String, Integer> symbolTable = new Hashtable<String, Integer>();
-		boolean[] used; // Track which vars have been used
-		ArrayList<ArrayList<Integer>> memoryMap = new ArrayList<ArrayList<Integer>>();
-		
+		ArrayList<String> symbols = new ArrayList<>();
+		ArrayList<Integer> symbolAddresses = new ArrayList<>();
+		ArrayList<Boolean> used = new ArrayList<>();
+		ArrayList<ArrayList<Integer>> memoryMap = new ArrayList<>();
+
 		int baseAddress = 0;
 		int numModules = scan.nextInt();
-		int max = 0; // Use this to index used array
 		
 		for (int i = 0; i < numModules; i++) {
 			int numDefinitionPairs = scan.nextInt();
@@ -25,12 +26,17 @@ public class TwoPass_Linker {
 				
 				int address = baseAddress + tempAddress;
 				
-				if (!symbolTable.containsKey(symbol)) {
-					symbolTable.put(symbol, address);
-					max = Math.max(max, address);
+				if (!symbols.contains(symbol)) {
+					symbols.add(symbol);
+					symbolAddresses.add(address);
+					used.add(false);
 				}
-				else
-					System.out.println("Error: symbol already defined");
+				else {
+					System.out.println("Error: This variable is multiply defined; last value used.");
+					int indexToChange = symbols.indexOf(symbol);
+					symbolAddresses.set(indexToChange, address);
+				}
+					
 			}
 			
 			// Use list: clear buffer + skip first pass
@@ -45,47 +51,64 @@ public class TwoPass_Linker {
 		}
 		
 		scan.close();
-		scan = new Scanner(input);
 		
+		// --- SECOND PASS ---
 		// During the second iteration, we recreate the memory table.
 		// R - Relative. Must be relocated based on base address offset.
-		// E - External. Must be resolved. (Via the Linked List?) 
+		// E - External. Must be resolved. 
 		// I - Immediate. Unchanged.
 		// A - Absolute. Unchanged.
 		
 		baseAddress = 0;
-		used = new boolean[max + 1];
-		
+		scan = new Scanner(input);
 		// Get the number of modules and clear the buffer
 		numModules = scan.nextInt();
 		scan.nextLine();
 		
 		for (int i = 0; i < numModules; i++) {
 			// Definition list: Skip second time
-			scan.nextLine();
+			int numDefs = scan.nextInt();
+			for (int j = 0; j < numDefs; j++) {
+				scan.next();
+				scan.next();
+			}
 			
 			// Use list: Place symbol address/symbol into a Hashtable.
 			int numUsePairs = scan.nextInt();
-			Hashtable<Integer, String> useMappings = new Hashtable<Integer, String>();
+			ArrayList<Integer> useSymbolAddresses = new ArrayList<>();
+			ArrayList<String> useSymbols = new ArrayList<>();
+			ArrayList<Boolean> useExists = new ArrayList<>();
 			
 			for (int j = 0; j < numUsePairs; j++) {
 				String symbol = scan.next();
 				int symbolAddress = scan.nextInt();
-				if (symbolTable.containsKey(symbol)) {
-					useMappings.put(symbolAddress, symbol);
-					used[symbolTable.get(symbol)] = true;
+				
+				if (symbols.contains(symbol)) {
+					useSymbolAddresses.add(symbolAddress);
+					useSymbols.add(symbol);
+					int symbolIndex = symbols.indexOf(symbol);
+					used.set(symbolIndex, true);
+					useExists.add(true);
 				}
 				else {
-					System.out.println("Symbol is used but not defined. Using value 111");
-					useMappings.put(111, symbol);
+					System.out.println(symbol + " is used but not defined; 111 used.");
+					useSymbolAddresses.add(symbolAddress);
+					useSymbols.add(symbol);
+					useExists.add(false);
 				}
 					
 			}
+			
+			System.out.println(useSymbolAddresses);
+			System.out.println(useSymbols);
+			System.out.println(useExists);
 			
 			// Program list: Adjust addresses according to rules. Read in the line and put it into a list.
 			ArrayList<Integer> subList = new ArrayList<Integer>();
 			int moduleSize = scan.nextInt();
 			String[] programArray = scan.nextLine().split(" +");
+			
+			// Switch usageMappings to double ArrayLists.
 			
 			for (int j = 1; j < programArray.length; j += 2) {
 				char type = programArray[j].charAt(0);
@@ -95,7 +118,8 @@ public class TwoPass_Linker {
 					case 'R':
 						address += baseAddress;
 						break;
-					case 'E':
+					case 'E':	
+						break;
 					case 'I':
 					case 'A':
 						break;
@@ -106,28 +130,50 @@ public class TwoPass_Linker {
 				subList.add(address);
 			}
 			
+			System.out.println("Use symbols: " + useSymbols);
+			System.out.println("Use symbol addresses: " + useSymbolAddresses);
+			
 			// Adjust External addresses last
-			for (int index : useMappings.keySet()) {
-				int element = subList.get(index);
-				int nextAddress = nextAddress(element);
-				int changedAddress = symbolTable.get(useMappings.get(index));
-				int finalAddress = changeAddress(subList.get(index), changedAddress);
-				subList.set(index, finalAddress);
-				while (nextAddress != 777) {
-					int nextElement = subList.get(nextAddress);
-					finalAddress = changeAddress(subList.get(nextAddress), changedAddress);
-					subList.set(nextAddress, finalAddress);
-					nextAddress = nextAddress(nextElement);
+			for (int j = 0; j < useSymbolAddresses.size(); j++) {
+				int index = useSymbolAddresses.get(j);
+				String symbol = useSymbols.get(j);
+				// If it doesn't exist just grab 111
+				if (!useExists.get(j)) {
+					int tempAddress = subList.get(index);
+					int offset = 111;
+					int finalAddress = changeAddress(tempAddress, offset);
+					subList.set(index, finalAddress);
 				}
+				
+				else {
+					int tempAddress = subList.get(index);
+					int nextAddress = nextAddress(tempAddress);
+					int offset = symbolAddresses.get(symbols.indexOf(symbol));
+					
+					int finalAddress = changeAddress(tempAddress, offset);
+					subList.set(index, finalAddress);
+					
+					while (nextAddress != 777) {
+						int nextNextAddress = subList.get(nextAddress);
+						finalAddress = changeAddress(nextNextAddress, offset);
+						subList.set(nextAddress, finalAddress);
+						nextAddress = nextAddress(nextNextAddress);
+					}
+				}
+				
+				
+				
 			}
+			
 			
 			memoryMap.add(subList);
 			baseAddress += moduleSize;
 		}
-		
+
 		// Outputs
+		System.out.println("Symbols: " + symbols);
+		System.out.println("Addresses: " + symbolAddresses);
 		
-		System.out.println("Symbol table: \n" + symbolTable);
 		for (ArrayList<Integer> list : memoryMap) {
 			System.out.println("---");
 			for (int address : list) {
@@ -135,13 +181,13 @@ public class TwoPass_Linker {
 			}
 		}
 		
-		System.out.println(Arrays.toString(used));
-		for (String symbol : symbolTable.keySet()) {
-			if (!used[symbolTable.get(symbol)])
-				System.out.println("Warning: " + symbol + " was defined but not used");
+		for (int i = 0; i < symbols.size(); i++) {
+			if (!used.get(i))
+				System.out.println("Warning: Symbol " + symbols.get(i) + " is defined but never used");
 		}
 		
 		scan.close();
+		
 	} // End main
 
 	public static int changeAddress(int address, int addressOffset) {
