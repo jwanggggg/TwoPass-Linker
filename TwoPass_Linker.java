@@ -5,14 +5,15 @@ import java.io.*;
 public class TwoPass_Linker {
 	
 	public static void main(String[] args) throws IOException {
-		File input = new File("src/input/input-5");
+		File input = new File("src/input/input-3");
 		Scanner scan = new Scanner(input);
 		
 		ArrayList<String> symbols = new ArrayList<>();
 		ArrayList<Integer> symbolAddresses = new ArrayList<>();
 		ArrayList<Boolean> used = new ArrayList<>();
 		ArrayList<ArrayList<Integer>> memoryMap = new ArrayList<>();
-
+		
+		
 		int baseAddress = 0;
 		int numModules = scan.nextInt();
 		
@@ -78,108 +79,111 @@ public class TwoPass_Linker {
 			ArrayList<Integer> useSymbolAddresses = new ArrayList<>();
 			ArrayList<String> useSymbols = new ArrayList<>();
 			ArrayList<Boolean> useExists = new ArrayList<>();
+			ArrayList<Boolean> useUsed = new ArrayList<>(); // Tracks if programList elements have been used
 			
 			for (int j = 0; j < numUsePairs; j++) {
 				String symbol = scan.next();
 				int symbolAddress = scan.nextInt();
 				
+				useSymbolAddresses.add(symbolAddress);
+				useSymbols.add(symbol);
+				
 				if (symbols.contains(symbol)) {
-					useSymbolAddresses.add(symbolAddress);
-					useSymbols.add(symbol);
 					int symbolIndex = symbols.indexOf(symbol);
 					used.set(symbolIndex, true);
 					useExists.add(true);
 				}
 				else {
 					System.out.println(symbol + " is used but not defined; 111 used.");
-					useSymbolAddresses.add(symbolAddress);
-					useSymbols.add(symbol);
 					useExists.add(false);
 				}
-					
+				
 			}
 			
-			System.out.println(useSymbolAddresses);
-			System.out.println(useSymbols);
-			System.out.println(useExists);
-			
 			// Program list: Adjust addresses according to rules. Read in the line and put it into a list.
-			ArrayList<Integer> subList = new ArrayList<Integer>();
+			ArrayList<Integer> programList = new ArrayList<Integer>();
 			int moduleSize = scan.nextInt();
 			String[] programArray = scan.nextLine().split(" +");
 			
-			// Switch usageMappings to double ArrayLists.
+			// Don't change as you go. Save the programlist and typelist and modify afterwards.
+			// That way you can modify and print at the same time
+			
 			
 			for (int j = 1; j < programArray.length; j += 2) {
 				char type = programArray[j].charAt(0);
 				int address = Integer.parseInt(programArray[j + 1]);
-				
+				int nextAddress = nextAddress(address);
 				switch (type) {
-					case 'R':
-						address += baseAddress;
+					case 'R': // Use baseAddress if nextAddress exceeds module size
+						if (nextAddress >= moduleSize) {
+							System.out.println("Error: Type R address exceeds module size; 0 (relative) used");
+							address = changeAddress(address, baseAddress);
+						}
+						else
+							address += baseAddress;
 						break;
-					case 'E':	
+					case 'E': // Special case
+						break; 
+					case 'I': // Nothing needs to be done
 						break;
-					case 'I':
-					case 'A':
-						break;
-					default:
+					case 'A': // Check if exceeds machine size
+						if (nextAddress >= 300) {
+							address = changeAddress(address, 299);
+							System.out.println("A type address exceeds machine size; max legal value used");
+						}
 						break;
 				}
 				
-				subList.add(address);
+				programList.add(address);
+				useUsed.add(false); // All addresses are marked unused at first
 			}
-			
-			System.out.println("Use symbols: " + useSymbols);
-			System.out.println("Use symbol addresses: " + useSymbolAddresses);
 			
 			// Adjust External addresses last
 			for (int j = 0; j < useSymbolAddresses.size(); j++) {
 				int index = useSymbolAddresses.get(j);
 				String symbol = useSymbols.get(j);
-				// If it doesn't exist just grab 111
-				if (!useExists.get(j)) {
-					int tempAddress = subList.get(index);
-					int offset = 111;
-					int finalAddress = changeAddress(tempAddress, offset);
-					subList.set(index, finalAddress);
+				
+				// If offset doesn't exist use 111
+				int tempAddress = programList.get(index);
+				int nextAddress = nextAddress(tempAddress);
+				int offset = useExists.get(j) ? symbolAddresses.get(symbols.indexOf(symbol)) : 111;
+				
+				int finalAddress = changeAddress(tempAddress, offset);
+				programList.set(index, finalAddress);
+				
+				// Check if used, then mark as used
+				if (useUsed.get(index) == true) {
+					System.out.println("Error: Multiple symbols used here; last one used.");
+					nextAddress = nextAddress(finalAddress);
+					programList.set(nextAddress, finalAddress);
 				}
 				
 				else {
-					int tempAddress = subList.get(index);
-					int nextAddress = nextAddress(tempAddress);
-					int offset = symbolAddresses.get(symbols.indexOf(symbol));
-					
-					int finalAddress = changeAddress(tempAddress, offset);
-					subList.set(index, finalAddress);
-					
 					while (nextAddress != 777) {
-						int nextNextAddress = subList.get(nextAddress);
+						int nextNextAddress = programList.get(nextAddress);
 						finalAddress = changeAddress(nextNextAddress, offset);
-						subList.set(nextAddress, finalAddress);
+						programList.set(nextAddress, finalAddress);
 						nextAddress = nextAddress(nextNextAddress);
 					}
 				}
 				
-				
+				useUsed.set(index, true);
 				
 			}
 			
-			
-			memoryMap.add(subList);
+			memoryMap.add(programList);
 			baseAddress += moduleSize;
 		}
 
 		// Outputs
-		System.out.println("Symbols: " + symbols);
-		System.out.println("Addresses: " + symbolAddresses);
-		
 		for (ArrayList<Integer> list : memoryMap) {
 			System.out.println("---");
 			for (int address : list) {
 				System.out.println(address);
 			}
 		}
+		System.out.println("---");
+		
 		
 		for (int i = 0; i < symbols.size(); i++) {
 			if (!used.get(i))
