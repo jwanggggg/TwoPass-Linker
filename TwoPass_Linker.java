@@ -1,57 +1,82 @@
-package Lab1;
-import java.util.*;
-import java.io.*; 
+import java.util.ArrayList;
+import java.util.Scanner;
 
 public class TwoPass_Linker {
 	
-	public static void main(String[] args) throws IOException {
-		File input = new File("src/input/input-3");
-		Scanner scan = new Scanner(input);
+	public static void main(String[] args) {
+		// Trimmed String array; holds all Strings split in the file.
+		String[] fileArray = generateFileArray();
 		
+		// Lists for symbol table
 		ArrayList<String> symbols = new ArrayList<>();
 		ArrayList<Integer> symbolAddresses = new ArrayList<>();
-		ArrayList<Boolean> used = new ArrayList<>();
-		ArrayList<ArrayList<Integer>> memoryMap = new ArrayList<>();
 		
+		// Lists to track errors
+		ArrayList<Boolean> multiplyDefined = new ArrayList<>(); // Check if multiple definitions in DL
+		ArrayList<Boolean> used = new ArrayList<>(); // Check if all defined symbols are used
+		ArrayList<Integer> moduleDefined = new ArrayList<>(); // Track which module each symbol is defined in
 		
-		int baseAddress = 0;
-		int numModules = scan.nextInt();
+		// Indices
+		int baseAddress = 0; // Track base address for each module
+		int fileIndex = 0; // Index will be used to iterate through the array
+		
+		// --- FIRST PASS ---
+		// Create the symbol table using the definition lists.
+		
+		int numModules = Integer.parseInt(fileArray[fileIndex++]);
 		
 		for (int i = 0; i < numModules; i++) {
-			int numDefinitionPairs = scan.nextInt();
-			
 			// Definition list
-			for (int j = 0; j < numDefinitionPairs; j++) {
-				String symbol = scan.next();
-				int tempAddress = scan.nextInt();
+			int numDefinitions = Integer.parseInt(fileArray[fileIndex++]);
+			
+			for (int j = 0; j < numDefinitions; j++) {
+				// Increment tempAddress by baseAddress offset
+				String symbol = fileArray[fileIndex++];
+				int tempAddress = Integer.parseInt(fileArray[fileIndex++]);
+				int address = baseAddress + tempAddress; 
 				
-				int address = baseAddress + tempAddress;
-				
+				// Check if symbol table contains symbol and set error lists accordingly
 				if (!symbols.contains(symbol)) {
 					symbols.add(symbol);
 					symbolAddresses.add(address);
 					used.add(false);
+					multiplyDefined.add(false);
+					moduleDefined.add(i);
 				}
 				else {
-					System.out.println("Error: This variable is multiply defined; last value used.");
 					int indexToChange = symbols.indexOf(symbol);
 					symbolAddresses.set(indexToChange, address);
+					multiplyDefined.set(indexToChange, true);
+					moduleDefined.set(indexToChange, i);
 				}
 					
 			}
 			
-			// Use list: clear buffer + skip first pass
-			scan.nextLine();
-			scan.nextLine();
+			// Use list: Skip on first pass.
+			int numUses = Integer.parseInt(fileArray[fileIndex++]);
+			for (int j = 0; j < numUses; j++)
+				fileIndex += 2;
 			
-			// Program list: increment base address, skip the rest
-			int moduleSize = scan.nextInt();
+			// Program list: increment base address, skip the rest on first pass.
+			int moduleSize = Integer.parseInt(fileArray[fileIndex++]);
 			baseAddress += moduleSize;
 			
-			scan.nextLine();
+			for (int j = 0; j < moduleSize; j++)
+				fileIndex += 2;
 		}
 		
-		scan.close();
+		// Print the Symbol Table
+		System.out.println("Symbol Table\n-----");
+		for (int i = 0; i < symbols.size(); i++) {
+			String symbol = symbols.get(i);
+			int symbolAddress = symbolAddresses.get(i);
+			boolean wasMultiplyDefined = multiplyDefined.get(i); 
+			System.out.print(symbol + "=" + symbolAddress);
+			if (wasMultiplyDefined) {
+				System.out.print(" Error: This variable is multiply defined; last value used.");
+			}
+			System.out.print("\n");
+		}
 		
 		// --- SECOND PASS ---
 		// During the second iteration, we recreate the memory table.
@@ -60,140 +85,241 @@ public class TwoPass_Linker {
 		// I - Immediate. Unchanged.
 		// A - Absolute. Unchanged.
 		
+		// Reset indices and begin second pass
 		baseAddress = 0;
-		scan = new Scanner(input);
-		// Get the number of modules and clear the buffer
-		numModules = scan.nextInt();
-		scan.nextLine();
+		fileIndex = 0;
+		numModules = Integer.parseInt(fileArray[fileIndex++]);
+		
+		System.out.println("\nMemory Map\n-----");
 		
 		for (int i = 0; i < numModules; i++) {
-			// Definition list: Skip second time
-			int numDefs = scan.nextInt();
-			for (int j = 0; j < numDefs; j++) {
-				scan.next();
-				scan.next();
+			// Definition list: Skip second pass
+			int numDefinitions = Integer.parseInt(fileArray[fileIndex++]);
+			
+			for (int j = 0; j < numDefinitions; j++) {
+				fileIndex += 2;
 			}
 			
-			// Use list: Place symbol address/symbol into a Hashtable.
-			int numUsePairs = scan.nextInt();
+			
+			// Use List: Place symbol address/symbol into two ArrayLists
+			int numUses = Integer.parseInt(fileArray[fileIndex++]);
+			
+			// Lists used to track the symbols/addresses in the use list 
 			ArrayList<Integer> useSymbolAddresses = new ArrayList<>();
 			ArrayList<String> useSymbols = new ArrayList<>();
-			ArrayList<Boolean> useExists = new ArrayList<>();
-			ArrayList<Boolean> useUsed = new ArrayList<>(); // Tracks if programList elements have been used
 			
-			for (int j = 0; j < numUsePairs; j++) {
-				String symbol = scan.next();
-				int symbolAddress = scan.nextInt();
+			// Lists used to track errors in the use list
+			ArrayList<Boolean> useExists = new ArrayList<>(); // Tracks if use list elements are defined
+			ArrayList<Boolean> useUsed = new ArrayList<>(); // Tracks if use list elements have been used
+			ArrayList<Boolean> multiplyUsed = new ArrayList<>(); // Tracks if multiple use list elements are used in one index
+			
+			// Construct use symbol/address mapping
+			for (int j = 0; j < numUses; j++) {
+				String symbol = fileArray[fileIndex++];
+				int symbolAddress = Integer.parseInt(fileArray[fileIndex++]);
 				
 				useSymbolAddresses.add(symbolAddress);
 				useSymbols.add(symbol);
 				
+				// Handle error lists if symbol is used > once
 				if (symbols.contains(symbol)) {
 					int symbolIndex = symbols.indexOf(symbol);
 					used.set(symbolIndex, true);
 					useExists.add(true);
 				}
 				else {
-					System.out.println(symbol + " is used but not defined; 111 used.");
 					useExists.add(false);
 				}
 				
 			}
+						
+			// PROGRAM LIST: Adjust addresses according to rules.
 			
-			// Program list: Adjust addresses according to rules. Read in the line and put it into a list.
-			ArrayList<Integer> programList = new ArrayList<Integer>();
-			int moduleSize = scan.nextInt();
-			String[] programArray = scan.nextLine().split(" +");
+			// Lists to track type/number 
+			ArrayList<Character> typeList = new ArrayList<>(); // Tracks type (R/I/E/A)
+			ArrayList<Integer> programList = new ArrayList<>(); // Tracks number
 			
-			// Don't change as you go. Save the programlist and typelist and modify afterwards.
-			// That way you can modify and print at the same time
+			// Lists to track errors
+			ArrayList<Boolean> hasError = new ArrayList<>(); // Determines if each one has an error
+			ArrayList<Boolean> isDefined = new ArrayList<>(); // Tracks which elements in programList weren't defined
+			ArrayList<String> finalListSymbolAllocations = new ArrayList<>(); // Tracks which symbols are used at which E address
 			
+			// Final list
+			ArrayList<Integer> finalList = new ArrayList<>();
+			int moduleSize = Integer.parseInt(fileArray[fileIndex++]);
 			
-			for (int j = 1; j < programArray.length; j += 2) {
-				char type = programArray[j].charAt(0);
-				int address = Integer.parseInt(programArray[j + 1]);
+			// Track the current SYMBOL and 4-DIGIT NUMBER in two ArrayLists
+			
+			for (int j = 0; j < moduleSize * 2; j++) {
+				String curr = fileArray[fileIndex++];
+				// Evens are type, odds are addresses.
+				if (j % 2 == 0) {
+					typeList.add(curr.charAt(0));
+				}
+				
+				else {
+					programList.add(Integer.parseInt(curr));
+				}
+			}
+			
+			// Track errors for R and A size
+			for (int j = 0; j < typeList.size(); j++) {
+				char type = typeList.get(j);
+				int address = programList.get(j);
 				int nextAddress = nextAddress(address);
+				
 				switch (type) {
 					case 'R': // Use baseAddress if nextAddress exceeds module size
 						if (nextAddress >= moduleSize) {
-							System.out.println("Error: Type R address exceeds module size; 0 (relative) used");
 							address = changeAddress(address, baseAddress);
+							hasError.add(true);
 						}
-						else
+						else {
 							address += baseAddress;
+							hasError.add(false);
+						}
 						break;
-					case 'E': // Special case
-						break; 
+					case 'E': 
 					case 'I': // Nothing needs to be done
+						hasError.add(false);
 						break;
 					case 'A': // Check if exceeds machine size
 						if (nextAddress >= 300) {
 							address = changeAddress(address, 299);
-							System.out.println("A type address exceeds machine size; max legal value used");
+							hasError.add(true);
 						}
+						else
+							hasError.add(false);
 						break;
 				}
-				
-				programList.add(address);
-				useUsed.add(false); // All addresses are marked unused at first
+				finalList.add(address);
+				isDefined.add(false);
+				finalListSymbolAllocations.add("");
+				useUsed.add(false);
+				multiplyUsed.add(false);
 			}
 			
 			// Adjust External addresses last
 			for (int j = 0; j < useSymbolAddresses.size(); j++) {
 				int index = useSymbolAddresses.get(j);
 				String symbol = useSymbols.get(j);
+				boolean defined = useExists.get(j);
+				
+				// Follow the Linked List using the last 3 digits of each value
+				int tempAddress = finalList.get(index);
+				int nextAddress = nextAddress(tempAddress);
 				
 				// If offset doesn't exist use 111
-				int tempAddress = programList.get(index);
-				int nextAddress = nextAddress(tempAddress);
-				int offset = useExists.get(j) ? symbolAddresses.get(symbols.indexOf(symbol)) : 111;
+				int offset;
+				if (defined) {
+					offset = symbolAddresses.get(symbols.indexOf(symbol));
+					isDefined.set(index, true);
+				} else {
+					offset = 111;
+					isDefined.set(index, false);
+					finalListSymbolAllocations.set(index, symbol);
+				}
 				
 				int finalAddress = changeAddress(tempAddress, offset);
-				programList.set(index, finalAddress);
+				finalList.set(index, finalAddress);
 				
 				// Check if used, then mark as used
 				if (useUsed.get(index) == true) {
-					System.out.println("Error: Multiple symbols used here; last one used.");
 					nextAddress = nextAddress(finalAddress);
-					programList.set(nextAddress, finalAddress);
+					finalList.set(nextAddress, finalAddress);
+					if (offset == 111)
+						isDefined.set(nextAddress, false);
+					else
+						isDefined.set(nextAddress, true);
+					
+					finalListSymbolAllocations.set(nextAddress, symbol);
+					multiplyUsed.set(nextAddress, true);
 				}
 				
 				else {
 					while (nextAddress != 777) {
 						int nextNextAddress = programList.get(nextAddress);
 						finalAddress = changeAddress(nextNextAddress, offset);
-						programList.set(nextAddress, finalAddress);
+						finalList.set(nextAddress, finalAddress);
+						if (offset == 111)
+							isDefined.set(nextAddress, false);
+						else
+							isDefined.set(nextAddress, true);
+						
+						finalListSymbolAllocations.set(nextAddress, symbol); // Set the symbol used at the index of program list
 						nextAddress = nextAddress(nextNextAddress);
 					}
 				}
 				
 				useUsed.set(index, true);
-				
 			}
 			
-			memoryMap.add(programList);
+			// PRINT MEMORY MAP
+			
+			for (int j = 0; j < typeList.size(); j++) {
+				char type = typeList.get(j);
+				int address = finalList.get(j);
+				boolean defined = isDefined.get(j);
+				boolean multipleUsed = multiplyUsed.get(j);
+				
+				System.out.print(address + " ");
+				switch (type) {
+					case 'R':
+						if (hasError.get(j) == true)
+							System.out.print("Error: Type R address exceeds module size; 0 (relative) used");
+						break;
+					case 'A':
+						if (hasError.get(j) == true)
+							System.out.print("Error: A type address exceeds machine size; max legal value used");
+						break;
+					case 'E':
+						if (!defined) {
+							String symbol = finalListSymbolAllocations.get(j);
+							System.out.print(symbol + " is used but not defined; 111 used.");
+						}
+						
+						if (multipleUsed)
+							System.out.print(" Error: Multiple symbols used here; last one used");
+						
+						break;
+				}
+				
+				System.out.print("\n");
+			}
+			
 			baseAddress += moduleSize;
 		}
 
-		// Outputs
-		for (ArrayList<Integer> list : memoryMap) {
-			System.out.println("---");
-			for (int address : list) {
-				System.out.println(address);
-			}
-		}
-		System.out.println("---");
-		
-		
+		// Lastly, check if any symbols haven't been used
 		for (int i = 0; i < symbols.size(); i++) {
 			if (!used.get(i))
-				System.out.println("Warning: Symbol " + symbols.get(i) + " is defined but never used");
+				System.out.println("Warning: " + symbols.get(i) + " is defined in"
+						+ " module " + moduleDefined.get(i) + " but never used");
 		}
 		
-		scan.close();
-		
 	} // End main
-
+	
+	// Generates the file array used in the program
+	public static String[] generateFileArray() {
+		Scanner fileInput = new Scanner(System.in);
+		StringBuilder sb = new StringBuilder();
+		System.out.println("Paste the entire file input in. Enter \"s\" to end the input.");
+		
+		while (true) {
+			String line = fileInput.nextLine();
+			if (line.toLowerCase().equals("s"))
+				break;
+			
+			sb.append(line + " ");
+		}
+		
+		fileInput.close();
+		
+		String[] fileArray = sb.toString().trim().split("\\s+");
+		return fileArray;
+	}
+	
+	// Modifies the last three digits of a given address.
 	public static int changeAddress(int address, int addressOffset) {
 		while (address / 10 != 0) {
 			address /= 10;
@@ -204,6 +330,7 @@ public class TwoPass_Linker {
 		return address;
 	}
 	
+	// Scrapes the last three digits of a given address.
 	public static int nextAddress(int address) {
 		int multiplier = 1;
 		int nextAddress = 0;
